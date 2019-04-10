@@ -6,9 +6,6 @@
 #define NUMMEMORY 65536
 #define NUMREGS 8
 
-// ## test upper and lower bound of mem (esp when x == NUMMEMORY)
-// ## ensure that NUMMEMORY is the right number
-
 typedef struct stateStruct {
 	int pc;
 	int mem[NUMMEMORY];
@@ -101,7 +98,7 @@ int runInstrs( statetype* state ) {
 
 		printState( state );
 		state-> pc++;
-		numInstrs++;
+		numInstrs += (opcode == 6) ? 0 : 1;
 
 		if (opcode == 0) { // add
 			if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
@@ -146,9 +143,8 @@ int runInstrs( statetype* state ) {
 			state-> mem[state-> reg[regB] + immediate] = state-> reg[regA];
 		}
 		else if (opcode == 4) { // beq
-			int error = (regDest < 1 || regDest > 7)  ? 1 : 0;
-			    error = (regA < 0 || regA > 7)        ? 1 : error;
-		      error = (regB < 0 || regB > 7)        ? 1 : error;
+			int error = (regA < 0 || regA > 7) ? 1 : 0;
+		      error = (regB < 0 || regB > 7) ? 1 : error;
 
 			if (error || (state-> reg[regA] == state-> reg[regB] && (state-> pc + immediate < 0 || state-> pc + immediate >= NUMMEMORY))) {
 				printf( "ERROR: beq was given an improper reg or offset\n" );
