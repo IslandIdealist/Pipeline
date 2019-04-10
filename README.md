@@ -7,4 +7,3 @@
 -	[ ] Injecting noops vs add 0 0 0?
 
 - [ ] Size of datamem vs instrmem?
-
