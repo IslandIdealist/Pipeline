@@ -46,13 +46,6 @@ typedef struct WBENDstruct{
 	int writedata;
 } WBENDType;
 
-//typedef struct stateStruct {
-//	int pc;
-//	int mem[NUMMEMORY];
-//	int reg[NUMREGS];
-//	int numMemory;
-//} statetype;
-
 typedef struct statestruct{
 	int pc;
 	int instrmem[NUMMEMORY];
@@ -71,8 +64,18 @@ typedef struct statestruct{
 	int mispreds;  /* Number of branch mispredictions*/
 } statetype;
 
-void printState( statetype* state );
 int  runInstrs( statetype* state );
+void noopIFID(statetype *stateptr);
+void noopIDEX(statetype *stateptr);
+void noopEXMEM(statetype *stateptr);
+void noopMEMWB(statetype *stateptr);
+void noopWBEND(statetype *stateptr);
+int field0(int instruction);
+int field1(int instruction);
+int field2(int instruction);
+int opcode(int instruction);
+void printinstruction(int instr);
+void printstate(statetype *stateptr);
 
 int main( int argc, char** argv ) {
 // GETOPT
@@ -116,27 +119,12 @@ int main( int argc, char** argv ) {
 // PERFORM INSTRUCTIONS AND PRINT STATE
 	int numInstrs = runInstrs( state );
 
-	printState( state );
+	printstate( state );
 	free( state );
 	printf( "\nINSTRUCTIONS: %d\n", numInstrs );
 	exit( EXIT_SUCCESS );
 }
 
-
-//void printState( statetype* state ) {
-//	printf( "\n@@@\nstate:\n" );
-//	printf( "\tpc %d\n", state -> pc );
-//	printf( "\tmemory:\n" );
-//
-//	for (int i = 0; i < state -> numMemory; i++) {
-//		printf( "\t\tmem[%d]=%d\n", i, state -> mem[i] );
-//	}
-//	printf( "\tregisters:\n" );
-//	for (int i = 0; i < NUMREGS; i++) {
-//		printf( "\t\treg[%d]=%d\n", i, state -> reg[i] );
-//	}
-//	printf( "end state\n" );
-//}
 
 int runInstrs( statetype* state ) {
 	int curInstr;
@@ -144,38 +132,52 @@ int runInstrs( statetype* state ) {
 	int regDest;
 	int regB;
 	int regA;
-	int opcode = (state-> mem[state-> pc] >> 22) & 7;
+	int opcode = (state-> instrmem[state-> pc] >> 22) & 7;
 	int numInstrs = 1;
+	statetype* newstate = malloc( 1 * sizeof(statetype) ); // <frd>
 
 	while(1){
-		printstate(&state);
+		noopIFID( state );
+		noopIDEX( state );
+		noopEXMEM( state );
+		noopMEMWB( state );
+		noopWBEND( state );
+
+		//printstate(&state);
+		printstate( state );
 
 		/* check for halt */
-		if(HALT == opcode(state.MEMWB.instr)) {
-			printf(“machine halted\n”);
-			printf(“total of %d cycles executed\n”, state.cycles);
-			printf("total of %d instructions fetched\n", state.fetched);
-			printf(“total of %d instructions retired\n”, state.retired);
-			printf("total of %d branches executed\n", state.branches);
-			printf("total of %d branch mispredictions\n", state.mispreds);
+		//if(HALT == opcode(state-> MEMWB.instr)) {
+		if(HALT == opcode) {
+			printf("machine halted\n");
+			printf("total of %d cycles executed\n", state-> cycles);
+			printf("total of %d instructions fetched\n", state-> fetched);
+			printf("total of %d instructions retired\n", state-> retired);
+			printf("total of %d branches executed\n", state-> branches);
+			printf("total of %d branch mispredictions\n", state-> mispreds);
 			exit(0);
 		}
-		newstate = state;
-		newstate.cycles++;
+
+		//newstate = state;
+		memcpy( newstate, state, sizeof(statetype) );
+		//newstate.cycles++;
+		newstate-> cycles++;
 		/*------------------ IF stage ----------------- */
 		/*------------------ ID stage ----------------- */
 		/*------------------ EX stage ----------------- */
 		/*------------------ MEM stage ----------------- */
 		/*------------------ WB stage ----------------- */
-		state = newstate;
+		//state = newstate;
+		memcpy( state, newstate, sizeof(statetype) );
 		/* this is the last statement before the end of the loop.
 		It marks the end of the cycle and updates the current
 		state with the values calculated in this cycle
 		– AKA “Clock Tick”. */
 	}
 
+/*
 	while (opcode != 6) { // continue while instructions isn't halt
-		curInstr   = state-> mem[state-> pc];
+		curInstr   = state-> instrmem[state-> pc];
 		immediate  = curInstr & 0xffff; // 65535
 		immediate -= (immediate & (1 << 15)) ? (1 << 16) : 0;
 		regDest    = curInstr & 7;
@@ -183,7 +185,7 @@ int runInstrs( statetype* state ) {
 		regA       = (curInstr >> 19) & 7;
 		opcode     = (curInstr >> 22) & 7;
 
-		printState( state );
+		printstate( state );
 		state-> pc++;
 		numInstrs += (opcode == 6) ? 0 : 1;
 
@@ -214,7 +216,7 @@ int runInstrs( statetype* state ) {
 				exit( EXIT_FAILURE );
 			}
 
-			state-> reg[regA] = state-> mem[state-> reg[regB] + immediate];
+			state-> reg[regA] = state-> datamem[state-> reg[regB] + immediate];
 		}
 		else if (opcode == 3) { // sw
 			int error = (regA < 1 || regA > 7)                       ? 1 : 0;
@@ -227,7 +229,7 @@ int runInstrs( statetype* state ) {
 				exit( EXIT_FAILURE );
 			}
 
-			state-> mem[state-> reg[regB] + immediate] = state-> reg[regA];
+			state-> datamem[state-> reg[regB] + immediate] = state-> reg[regA];
 		}
 		else if (opcode == 4) { // beq
 			int error = (regA < 0 || regA > 7) ? 1 : 0;
@@ -257,25 +259,61 @@ int runInstrs( statetype* state ) {
 			exit( EXIT_FAILURE );
 		}
 	}
+*/
+
+	free( newstate );
 
 	return numInstrs;
 }
 
-//int field0(int instruction){
-//	return( (instruction>>19) & 0x7);
-//}
 
-//int field1(int instruction){
-//	return( (instruction>>16) & 0x7);
-//}
+void noopIFID(statetype *stateptr){
+	stateptr -> IFID.instr = NOOPINSTRUCTION;
+}
 
-//int field2(int instruction){
-//	return(instruction & 0xFFFF);
-//}
+void noopIDEX(statetype *stateptr){
+	stateptr -> IDEX.instr = NOOPINSTRUCTION;
+	stateptr -> IDEX.readregA = 0;
+	stateptr -> IDEX.readregB = 0;
+	stateptr -> IDEX.offset = 0;
+}
 
-//int opcode(int instruction){
-//	return(instruction>>22);
-//}
+void noopEXMEM(statetype *stateptr){
+	stateptr -> EXMEM.instr = NOOPINSTRUCTION;
+	stateptr -> EXMEM.branchtarget = 0;
+	stateptr -> EXMEM.aluresult = 0;
+	stateptr -> EXMEM.readreg = 0;
+}
+
+void noopMEMWB(statetype *stateptr){
+	stateptr -> MEMWB.instr = NOOPINSTRUCTION;
+	stateptr -> MEMWB.writedata = 0;
+}
+
+void noopWBEND(statetype *stateptr){
+	stateptr -> WBEND.instr = NOOPINSTRUCTION;
+	stateptr -> WBEND.writedata = 0;
+}
+
+int signextend(int field) {
+	return (field & (1 << 15)) ? field - (1 << 16) : field;
+}
+
+int field0(int instruction){
+	return( (instruction>>19) & 0x7);
+}
+
+int field1(int instruction){
+	return( (instruction>>16) & 0x7);
+}
+
+int field2(int instruction){
+	return(instruction & 0xFFFF);
+}
+
+int opcode(int instruction){
+	return(instruction>>22);
+}
 
 void printinstruction(int instr) {
 	char opcodestring[10];
@@ -289,8 +327,6 @@ void printinstruction(int instr) {
 		strcpy(opcodestring, "sw");
 	} else if (opcode(instr) == BEQ) {
 		strcpy(opcodestring, "beq");
-	} else if (opcode(instr) == JALR) {
-		strcpy(opcodestring, "jalr");
 	} else if (opcode(instr) == HALT) {
 		strcpy(opcodestring, "halt");
 	} else if (opcode(instr) == NOOP) {
@@ -316,7 +352,7 @@ void printstate(statetype *stateptr){
 	printf("\tpc %d\n", stateptr->pc);
 
 	printf("\tdata memory:\n");
-	for (i=0; i<stateptr->nummemory; i++) {
+	for (i=0; i<stateptr->numMemory; i++) {
     printf("\t\tdatamem[ %d ] %d\n", i, stateptr->datamem[i]);
 	}
 
