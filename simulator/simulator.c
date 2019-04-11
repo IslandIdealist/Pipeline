@@ -11,6 +11,7 @@
 #define LW 2
 #define SW 3
 #define BEQ 4
+#define JALR 5
 #define HALT 6
 #define NOOP 7
 
@@ -64,16 +65,18 @@ typedef struct statestruct{
 	int mispreds;  /* Number of branch mispredictions*/
 } statetype;
 
-int  runInstrs( statetype* state );
+void runInstrs( statetype* state );
 void noopIFID(statetype *stateptr);
 void noopIDEX(statetype *stateptr);
 void noopEXMEM(statetype *stateptr);
 void noopMEMWB(statetype *stateptr);
 void noopWBEND(statetype *stateptr);
+int signextend(int field);
 int field0(int instruction);
 int field1(int instruction);
 int field2(int instruction);
 int opcode(int instruction);
+void execute( statetype* state, statetype* newstate );
 void printinstruction(int instr);
 void printstate(statetype *stateptr);
 
@@ -117,155 +120,186 @@ int main( int argc, char** argv ) {
 
 
 // PERFORM INSTRUCTIONS AND PRINT STATE
-	int numInstrs = runInstrs( state );
+	runInstrs( state );
 
 	printstate( state );
 	free( state );
-	printf( "\nINSTRUCTIONS: %d\n", numInstrs );
 	exit( EXIT_SUCCESS );
 }
 
 
-int runInstrs( statetype* state ) {
-	int curInstr;
-	int immediate;
-	int regDest;
-	int regB;
-	int regA;
-	int opcode = (state-> instrmem[state-> pc] >> 22) & 7;
-	int numInstrs = 1;
+void runInstrs( statetype* state ) {
+	//int opcode; // = (state-> instrmem[state-> pc] >> 22) & 7;
+	//int numInstrs = 1;
 	statetype* newstate = malloc( 1 * sizeof(statetype) ); // <frd>
 
-	while(1){
-		noopIFID( state );
-		noopIDEX( state );
-		noopEXMEM( state );
-		noopMEMWB( state );
-		noopWBEND( state );
+	noopIFID( state );
+	noopIDEX( state );
+	noopEXMEM( state );
+	noopMEMWB( state );
+	noopWBEND( state );
 
-		//printstate(&state);
+	while(1){
 		printstate( state );
+		//opcode = opcode(state-> instrmem[state-> pc]);
 
 		/* check for halt */
-		//if(HALT == opcode(state-> MEMWB.instr)) {
-		if(HALT == opcode) {
+		if(HALT == opcode(state-> MEMWB.instr)) {
 			printf("machine halted\n");
 			printf("total of %d cycles executed\n", state-> cycles);
 			printf("total of %d instructions fetched\n", state-> fetched);
 			printf("total of %d instructions retired\n", state-> retired);
 			printf("total of %d branches executed\n", state-> branches);
 			printf("total of %d branch mispredictions\n", state-> mispreds);
-			exit(0);
+			exit( EXIT_FAILURE );
 		}
 
-		//newstate = state;
-		memcpy( newstate, state, sizeof(statetype) );
-		//newstate.cycles++;
+		*newstate = *state;
 		newstate-> cycles++;
+
 		/*------------------ IF stage ----------------- */
+		newstate-> IFID.instr = state-> instrmem[state-> pc];
+		newstate-> IFID.pcplus1 = (state-> pc) + 1;
+
 		/*------------------ ID stage ----------------- */
+		newstate-> IDEX.instr = state-> IFID.instr;
+		newstate-> IDEX.pcplus1 = state-> IFID.pcplus1;
+		newstate-> IDEX.readregA = field0( state-> IFID.instr );
+		newstate-> IDEX.readregB = field1( state-> IFID.instr );
+		newstate-> IDEX.offset = field2( state-> IFID.instr );
+
 		/*------------------ EX stage ----------------- */
+		execute( state, newstate );
+
+		if (BEQ == opcode( state-> EXMEM.instr ) && state-> EXMEM.aluresult == 0) {
+			newstate-> pc = state-> EXMEM.branchtarget;
+		} else {
+			newstate-> pc = (state-> pc) + 1;
+		}
+
 		/*------------------ MEM stage ----------------- */
+		newstate-> MEMWB.instr = state-> EXMEM.instr;
+
+		if (ADD == opcode( state-> EXMEM.instr ) || NAND == opcode( state-> EXMEM.instr )) {
+			newstate-> MEMWB.writedata = state-> EXMEM.aluresult;
+		} else if (LW == opcode( state-> EXMEM.instr )) {
+			newstate-> MEMWB.writedata = state-> datamem[state-> EXMEM.aluresult];
+		} else {
+			newstate-> MEMWB.writedata = 0;
+		}
+
+		if (SW == opcode( state-> EXMEM.instr )) {
+			newstate-> datamem[state-> EXMEM.aluresult] = state-> EXMEM.readreg;
+		}
+
 		/*------------------ WB stage ----------------- */
-		//state = newstate;
-		memcpy( state, newstate, sizeof(statetype) );
+		newstate-> WBEND.instr = state-> MEMWB.instr; // ??? is WBEND for some sort of hazard solution ???
+		newstate-> WBEND.writedata = state-> MEMWB.writedata;
+
+		if (ADD == opcode( state-> MEMWB.instr ) || NAND == opcode( state-> MEMWB.instr )) {
+			newstate-> reg[field2(state-> MEMWB.instr)] = state-> MEMWB.writedata;
+		}
+		if (LW == opcode( state-> MEMWB.instr )) {
+			newstate-> reg[field0( state-> MEMWB.instr )] = state-> MEMWB.writedata;
+		}
+
+
+		*state = *newstate;
 		/* this is the last statement before the end of the loop.
 		It marks the end of the cycle and updates the current
 		state with the values calculated in this cycle
 		– AKA “Clock Tick”. */
 	}
 
-/*
-	while (opcode != 6) { // continue while instructions isn't halt
-		curInstr   = state-> instrmem[state-> pc];
-		immediate  = curInstr & 0xffff; // 65535
-		immediate -= (immediate & (1 << 15)) ? (1 << 16) : 0;
-		regDest    = curInstr & 7;
-		regB       = (curInstr >> 16) & 7;
-		regA       = (curInstr >> 19) & 7;
-		opcode     = (curInstr >> 22) & 7;
-
-		printstate( state );
-		state-> pc++;
-		numInstrs += (opcode == 6) ? 0 : 1;
-
-		if (opcode == 0) { // add
-			if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
-				printf( "ERROR: add was given an improper register\n" );
-				exit( EXIT_FAILURE );
-			}
-
-			state-> reg[regDest] = state-> reg[regA] + state-> reg[regB];
-		}
-		else if (opcode == 1) { // nand
-			if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
-				printf( "ERROR: nand was given an improper register\n" );
-				exit( EXIT_FAILURE );
-			}
-
-			state-> reg[regDest] = ~ (state-> reg[regA] & state-> reg[regB]);
-		}
-		else if (opcode == 2) { // lw
-			int error = (regA < 1 || regA > 7)                       ? 1 : 0;
-		      error = (regB < 0 || regB > 7)                       ? 1 : error;
-					error = (state-> reg[regB] + immediate < 0)          ? 1 : error;
-					error = (state-> reg[regB] + immediate >= NUMMEMORY) ? 1 : error;
-
-			if (error) {
-				printf( "ERROR: lw was given an improper reg or offset\n" );
-				exit( EXIT_FAILURE );
-			}
-
-			state-> reg[regA] = state-> datamem[state-> reg[regB] + immediate];
-		}
-		else if (opcode == 3) { // sw
-			int error = (regA < 1 || regA > 7)                       ? 1 : 0;
-		      error = (regB < 0 || regB > 7)                       ? 1 : error;
-					error = (state-> reg[regB] + immediate < 0)          ? 1 : error;
-					error = (state-> reg[regB] + immediate >= NUMMEMORY) ? 1 : error;
-
-			if (error) {
-				printf( "ERROR: sw was given an improper reg or offset\n" );
-				exit( EXIT_FAILURE );
-			}
-
-			state-> datamem[state-> reg[regB] + immediate] = state-> reg[regA];
-		}
-		else if (opcode == 4) { // beq
-			int error = (regA < 0 || regA > 7) ? 1 : 0;
-		      error = (regB < 0 || regB > 7) ? 1 : error;
-
-			if (error || (state-> reg[regA] == state-> reg[regB] && (state-> pc + immediate < 0 || state-> pc + immediate >= NUMMEMORY))) {
-				printf( "ERROR: beq was given an improper reg or offset\n" );
-				exit( EXIT_FAILURE );
-			}
-
-			state-> pc += (state-> reg[regA] == state-> reg[regB]) ? immediate : 0;
-		}
-		else if (opcode == 5) { // jalr
-			if (regA < 1 || regA > 7 || regB < 0 || regB > 7) {
-				printf( "ERROR: jalr was given an improper register\n" );
-				exit( EXIT_FAILURE );
-			}
-
-			state-> reg[regA] = state-> pc;
-			state-> pc = state-> reg[regB];
-		}
-		else if (opcode == 7) { // noop
-			// nothing
-		}
-		else if (opcode > 7) {
-			printf( "ERROR: improper opcode was given\n" );
-			exit( EXIT_FAILURE );
-		}
-	}
-*/
-
 	free( newstate );
-
-	return numInstrs;
 }
 
+
+void execute( statetype* state, statetype* newstate ) {
+	int curOp = opcode( state-> IDEX.instr );
+	int regA = state-> IDEX.readregA;
+	int regB = state-> IDEX.readregB;
+	int immediate = signextend( state-> IDEX.offset );
+	int regDest = state-> IDEX.instr & 7;
+	int pc = state-> IDEX.pcplus1;
+
+	newstate-> EXMEM.instr = state-> IDEX.instr;
+	//newstate-> EXMEM.branchtarget = pc;
+
+	if (curOp == 0) { // add
+		if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
+			printf( "ERROR: add was given an improper register\n" );
+			exit( EXIT_FAILURE );
+		}
+
+		newstate-> EXMEM.aluresult = state-> reg[regA] + state-> reg[regB];
+	}
+	else if (curOp == 1) { // nand
+		if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
+			printf( "ERROR: nand was given an improper register\n" );
+			exit( EXIT_FAILURE );
+		}
+
+		newstate-> EXMEM.aluresult = ~ (state-> reg[regA] & state-> reg[regB]);
+	}
+	else if (curOp == 2) { // lw
+		int error = (regA < 1 || regA > 7)                       ? 1 : 0;
+				error = (regB < 0 || regB > 7)                       ? 1 : error;
+				error = (state-> reg[regB] + immediate < 0)          ? 1 : error;
+				error = (state-> reg[regB] + immediate >= NUMMEMORY) ? 1 : error;
+
+		if (error) {
+			printf( "ERROR: lw was given an improper reg or offset\n" );
+			exit( EXIT_FAILURE );
+		}
+
+		newstate-> EXMEM.aluresult = state-> reg[regB] + immediate;
+	}
+	else if (curOp == 3) { // sw
+		int error = (regA < 1 || regA > 7)                       ? 1 : 0;
+				error = (regB < 0 || regB > 7)                       ? 1 : error;
+				error = (state-> reg[regB] + immediate < 0)          ? 1 : error;
+				error = (state-> reg[regB] + immediate >= NUMMEMORY) ? 1 : error;
+
+		if (error) {
+			printf( "ERROR: sw was given an improper reg or offset\n" );
+			exit( EXIT_FAILURE );
+		}
+
+		newstate-> EXMEM.aluresult = state-> reg[regB] + immediate;
+		newstate-> EXMEM.readreg = state-> reg[regA];
+	}
+	else if (curOp == 4) { // beq
+		int error = (regA < 0 || regA > 7) ? 1 : 0;
+				error = (regB < 0 || regB > 7) ? 1 : error;
+
+		if (error || (state-> reg[regA] == state-> reg[regB] && (state-> pc + immediate < 0 || state-> pc + immediate >= NUMMEMORY))) {
+			printf( "ERROR: beq was given an improper reg or offset\n" );
+			exit( EXIT_FAILURE );
+		}
+
+		//if (state-> reg[regA] == state-> reg[regB]) {
+		newstate-> EXMEM.branchtarget = pc + immediate;
+		//}
+		newstate-> EXMEM.aluresult = (state-> reg[regA] - state-> reg[regB]);
+	}
+	else if (curOp == 5) { // jalr
+		if (regA < 1 || regA > 7 || regB < 0 || regB > 7) {
+			printf( "ERROR: jalr was given an improper register\n" );
+			exit( EXIT_FAILURE );
+		}
+
+		//newstate-> reg[regA] = state-> pc;
+		//newstate-> pc = state-> reg[regB];
+	}
+	else if (curOp == 7) { // noop
+		// nothing
+	}
+	else if (curOp > 7) {
+		printf( "ERROR: improper opcode was given\n" );
+		exit( EXIT_FAILURE );
+	}
+}
 
 void noopIFID(statetype *stateptr){
 	stateptr -> IFID.instr = NOOPINSTRUCTION;
@@ -299,19 +333,19 @@ int signextend(int field) {
 	return (field & (1 << 15)) ? field - (1 << 16) : field;
 }
 
-int field0(int instruction){
+int field0(int instruction){ // regA
 	return( (instruction>>19) & 0x7);
 }
 
-int field1(int instruction){
+int field1(int instruction){ // regB
 	return( (instruction>>16) & 0x7);
 }
 
-int field2(int instruction){
+int field2(int instruction){ // immediate/offset value
 	return(instruction & 0xFFFF);
 }
 
-int opcode(int instruction){
+int opcode(int instruction){ // opcode
 	return(instruction>>22);
 }
 
@@ -327,6 +361,8 @@ void printinstruction(int instr) {
 		strcpy(opcodestring, "sw");
 	} else if (opcode(instr) == BEQ) {
 		strcpy(opcodestring, "beq");
+	} else if (opcode(instr) == JALR) {
+		strcpy(opcodestring, "jalr");
 	} else if (opcode(instr) == HALT) {
 		strcpy(opcodestring, "halt");
 	} else if (opcode(instr) == NOOP) {
