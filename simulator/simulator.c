@@ -224,6 +224,7 @@ void execute( statetype* state, statetype* newstate ) {
 	int pc = state-> IDEX.pcplus1;
 
 	newstate-> EXMEM.instr = state-> IDEX.instr;
+	newstate-> EXMEM.branchtarget = pc + immediate;
 	//newstate-> EXMEM.branchtarget = pc;
 
 	if (curOp == 0) { // add
@@ -278,9 +279,6 @@ void execute( statetype* state, statetype* newstate ) {
 			exit( EXIT_FAILURE );
 		}
 
-		//if (state-> reg[regA] == state-> reg[regB]) {
-		newstate-> EXMEM.branchtarget = pc + immediate;
-		//}
 		newstate-> EXMEM.aluresult = (state-> reg[regA] - state-> reg[regB]);
 	}
 	else if (curOp == 5) { // jalr
