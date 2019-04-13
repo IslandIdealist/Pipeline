@@ -77,6 +77,8 @@ int field1(int instruction);
 int field2(int instruction);
 int opcode(int instruction);
 void execute( statetype* state, statetype* newstate );
+void memory( statetype* state, statetype* newstate );
+void writeback( statetype* state, statetype* newstate );
 void printinstruction(int instr);
 void printstate(statetype *stateptr);
 
@@ -129,8 +131,6 @@ int main( int argc, char** argv ) {
 
 
 void runInstrs( statetype* state ) {
-	//int opcode; // = (state-> instrmem[state-> pc] >> 22) & 7;
-	//int numInstrs = 1;
 	statetype* newstate = malloc( 1 * sizeof(statetype) ); // <frd>
 
 	noopIFID( state );
@@ -141,7 +141,6 @@ void runInstrs( statetype* state ) {
 
 	while(1){
 		printstate( state );
-		//opcode = opcode(state-> instrmem[state-> pc]);
 
 		/* check for halt */
 		if(HALT == opcode(state-> MEMWB.instr)) {
@@ -164,45 +163,18 @@ void runInstrs( statetype* state ) {
 		/*------------------ ID stage ----------------- */
 		newstate-> IDEX.instr = state-> IFID.instr;
 		newstate-> IDEX.pcplus1 = state-> IFID.pcplus1;
-		newstate-> IDEX.readregA = field0( state-> IFID.instr );
-		newstate-> IDEX.readregB = field1( state-> IFID.instr );
-		newstate-> IDEX.offset = field2( state-> IFID.instr );
+		newstate-> IDEX.readregA = state-> reg[field0( state-> IFID.instr )];
+		newstate-> IDEX.readregB = state-> reg[field1( state-> IFID.instr )];
+		newstate-> IDEX.offset = signextend( field2( state-> IFID.instr ) );
 
 		/*------------------ EX stage ----------------- */
 		execute( state, newstate );
 
-		if (BEQ == opcode( state-> EXMEM.instr ) && state-> EXMEM.aluresult == 0) {
-			newstate-> pc = state-> EXMEM.branchtarget;
-		} else {
-			newstate-> pc = (state-> pc) + 1;
-		}
-
 		/*------------------ MEM stage ----------------- */
-		newstate-> MEMWB.instr = state-> EXMEM.instr;
-
-		if (ADD == opcode( state-> EXMEM.instr ) || NAND == opcode( state-> EXMEM.instr )) {
-			newstate-> MEMWB.writedata = state-> EXMEM.aluresult;
-		} else if (LW == opcode( state-> EXMEM.instr )) {
-			newstate-> MEMWB.writedata = state-> datamem[state-> EXMEM.aluresult];
-		} else {
-			newstate-> MEMWB.writedata = 0;
-		}
-
-		if (SW == opcode( state-> EXMEM.instr )) {
-			newstate-> datamem[state-> EXMEM.aluresult] = state-> EXMEM.readreg;
-		}
+		memory( state, newstate );
 
 		/*------------------ WB stage ----------------- */
-		newstate-> WBEND.instr = state-> MEMWB.instr; // ??? is WBEND for some sort of hazard solution ???
-		newstate-> WBEND.writedata = state-> MEMWB.writedata;
-
-		if (ADD == opcode( state-> MEMWB.instr ) || NAND == opcode( state-> MEMWB.instr )) {
-			newstate-> reg[field2(state-> MEMWB.instr)] = state-> MEMWB.writedata;
-		}
-		if (LW == opcode( state-> MEMWB.instr )) {
-			newstate-> reg[field0( state-> MEMWB.instr )] = state-> MEMWB.writedata;
-		}
-
+		writeback( state, newstate );
 
 		*state = *newstate;
 		/* this is the last statement before the end of the loop.
@@ -217,17 +189,17 @@ void runInstrs( statetype* state ) {
 
 void execute( statetype* state, statetype* newstate ) {
 	int curOp = opcode( state-> IDEX.instr );
-	int regA = state-> IDEX.readregA;
-	int regB = state-> IDEX.readregB;
-	int immediate = signextend( state-> IDEX.offset );
+	int regA = field0( state-> IDEX.instr );
+	int regB = field1( state-> IDEX.instr );
+	int immediate = state-> IDEX.offset;
 	int regDest = state-> IDEX.instr & 7;
 	int pc = state-> IDEX.pcplus1;
 
 	newstate-> EXMEM.instr = state-> IDEX.instr;
 	newstate-> EXMEM.branchtarget = pc + immediate;
-	//newstate-> EXMEM.branchtarget = pc;
+	newstate-> EXMEM.readreg = state-> IDEX.readregA;
 
-	if (curOp == 0) { // add
+	if (curOp == ADD) {
 		if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
 			printf( "ERROR: add was given an improper register\n" );
 			exit( EXIT_FAILURE );
@@ -235,7 +207,7 @@ void execute( statetype* state, statetype* newstate ) {
 
 		newstate-> EXMEM.aluresult = state-> reg[regA] + state-> reg[regB];
 	}
-	else if (curOp == 1) { // nand
+	else if (curOp == NAND) {
 		if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
 			printf( "ERROR: nand was given an improper register\n" );
 			exit( EXIT_FAILURE );
@@ -243,7 +215,7 @@ void execute( statetype* state, statetype* newstate ) {
 
 		newstate-> EXMEM.aluresult = ~ (state-> reg[regA] & state-> reg[regB]);
 	}
-	else if (curOp == 2) { // lw
+	else if (curOp == LW) {
 		int error = (regA < 1 || regA > 7)                       ? 1 : 0;
 				error = (regB < 0 || regB > 7)                       ? 1 : error;
 				error = (state-> reg[regB] + immediate < 0)          ? 1 : error;
@@ -256,7 +228,7 @@ void execute( statetype* state, statetype* newstate ) {
 
 		newstate-> EXMEM.aluresult = state-> reg[regB] + immediate;
 	}
-	else if (curOp == 3) { // sw
+	else if (curOp == SW) {
 		int error = (regA < 1 || regA > 7)                       ? 1 : 0;
 				error = (regB < 0 || regB > 7)                       ? 1 : error;
 				error = (state-> reg[regB] + immediate < 0)          ? 1 : error;
@@ -268,9 +240,8 @@ void execute( statetype* state, statetype* newstate ) {
 		}
 
 		newstate-> EXMEM.aluresult = state-> reg[regB] + immediate;
-		newstate-> EXMEM.readreg = state-> reg[regA];
 	}
-	else if (curOp == 4) { // beq
+	else if (curOp == BEQ) {
 		int error = (regA < 0 || regA > 7) ? 1 : 0;
 				error = (regB < 0 || regB > 7) ? 1 : error;
 
@@ -281,7 +252,7 @@ void execute( statetype* state, statetype* newstate ) {
 
 		newstate-> EXMEM.aluresult = (state-> reg[regA] - state-> reg[regB]);
 	}
-	else if (curOp == 5) { // jalr
+	else if (curOp == JALR) {
 		if (regA < 1 || regA > 7 || regB < 0 || regB > 7) {
 			printf( "ERROR: jalr was given an improper register\n" );
 			exit( EXIT_FAILURE );
@@ -290,12 +261,49 @@ void execute( statetype* state, statetype* newstate ) {
 		//newstate-> reg[regA] = state-> pc;
 		//newstate-> pc = state-> reg[regB];
 	}
-	else if (curOp == 7) { // noop
+	else if (curOp == NOOP) {
 		// nothing
 	}
 	else if (curOp > 7) {
 		printf( "ERROR: improper opcode was given\n" );
 		exit( EXIT_FAILURE );
+	}
+}
+
+void memory( statetype* state, statetype* newstate ) {
+	newstate-> MEMWB.instr = state-> EXMEM.instr;
+
+	// set writedata in next buffer
+	if (ADD == opcode( state-> EXMEM.instr ) || NAND == opcode( state-> EXMEM.instr )) {
+		newstate-> MEMWB.writedata = state-> EXMEM.aluresult;
+	} else if (LW == opcode( state-> EXMEM.instr )) {
+		newstate-> MEMWB.writedata = state-> datamem[state-> EXMEM.aluresult];
+	} else {
+		newstate-> MEMWB.writedata = 0; // ??? should this be here ???
+	}
+
+	// write to datamem
+	if (SW == opcode( state-> EXMEM.instr )) {
+		newstate-> datamem[state-> EXMEM.aluresult] = state-> EXMEM.readreg;
+	}
+
+	// set new pc to correct value
+	if (BEQ == opcode( state-> EXMEM.instr ) && state-> EXMEM.aluresult == 0) {
+		newstate-> pc = state-> EXMEM.branchtarget;
+	} else {
+		newstate-> pc = (state-> pc) + 1;
+	}
+}
+
+void writeback( statetype* state, statetype* newstate ) {
+	newstate-> WBEND.instr = state-> MEMWB.instr; // ??? is WBEND for some sort of hazard solution ???
+	newstate-> WBEND.writedata = state-> MEMWB.writedata;
+
+	if (ADD == opcode( state-> MEMWB.instr ) || NAND == opcode( state-> MEMWB.instr )) {
+		newstate-> reg[field2( state-> MEMWB.instr )] = state-> MEMWB.writedata;
+	}
+	if (LW == opcode( state-> MEMWB.instr )) {
+		newstate-> reg[field0( state-> MEMWB.instr )] = state-> MEMWB.writedata;
 	}
 }
 
