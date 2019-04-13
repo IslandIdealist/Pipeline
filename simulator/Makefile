@@ -1,11 +1,17 @@
 CC = gcc
 CFLAGS = -pipe
+PRNAME = simulator
 
 all: simulator.o
-	$(CC) $(CFLAGS) simulator.o -o simulator
+	$(CC) $(CFLAGS) $(PRNAME).o -o $(PRNAME)
 
 simulator.o: simulator.c
-	$(CC) $(CFLAGS) -c simulator.c
+	$(CC) $(CFLAGS) -c $(PRNAME).c
+
+debug: CFLAGS += -g
+debug: all
+	@echo DEBUG WITH: gdb $(PRNAME)
+	@echo MEMCHECK: valgrind --leak-check=full $(PRNAME) *args*
 
 clean:
-	rm simulator *.o *.*~ *~
+	rm $(PRNAME) *.o *.*~ *~
