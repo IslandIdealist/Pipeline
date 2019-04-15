@@ -1,3 +1,11 @@
+// take out isstall
+// set pc earlier
+// detect stall by looking forward
+// dont count injected noops for retire
+// valA and val B can't be taken from reg
+// dont set writedata equal to 0
+	// add check from exmem
+	// make changes based off of right-side intr (lw, nand, and)
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -198,7 +206,7 @@ void execute( statetype* state, statetype* newstate ) {
 	int immediate = state-> IDEX.offset;
 	int regDest = state-> IDEX.instr & 7;
 	int pc = state-> IDEX.pcplus1;
-	int valA = state-> reg[regA];
+	int valA = state-> reg[regA]; // valA and val B can't be taken from reg
 	int valB = state-> reg[regB];
 
 	newstate-> EXMEM.instr = state-> IDEX.instr;
@@ -216,6 +224,8 @@ void execute( statetype* state, statetype* newstate ) {
 		valA = (field0 (state-> MEMWB.instr) == regA) ? state-> MEMWB.writedata : valA;
 		valB = (field0 (state-> WBEND.instr) == regB) ? state-> WBEND.writedata : valB;
 		valB = (field0 (state-> MEMWB.instr) == regB) ? state-> MEMWB.writedata : valB;
+		// add check from exmem
+		// make changes based off of right-side intr (lw, nand, and)
 
 		newstate-> EXMEM.aluresult = valA + valB;
 	}
