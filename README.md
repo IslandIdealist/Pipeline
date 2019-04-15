@@ -11,12 +11,9 @@
 
 ### Questions for Dr. Myre
 
-- [ ] Spaces in print?
-- [ ] readregA == 0 when PC == 2
-- [ ] What is EXMEM.readreg for?
-- [ ] Setting newPC during EX?
-- [ ] When/where should branch prediction happen?
-- [ ] Read/write reg/mem ordering and behavior?
+- [ ] Count injected noops as retired?
+- [ ] Other data hazards?
+- [ ] Questions from code
 
 ### Notes
 

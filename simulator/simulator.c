@@ -16,6 +16,7 @@
 #define NOOP 7
 
 #define NOOPINSTRUCTION 0x1c00000
+#define BLANKINSTRUCTION 0x0000000
 
 typedef struct IFIDstruct{
 	int instr;
@@ -63,6 +64,7 @@ typedef struct statestruct{
 	int retired;   /* Total number of completed instructions */
 	int branches;  /* Total number of branches executed */
 	int mispreds;  /* Number of branch mispredictions*/
+	int isStall;
 } statetype;
 
 void runInstrs( statetype* state );
@@ -154,11 +156,13 @@ void runInstrs( statetype* state ) {
 		}
 
 		*newstate = *state;
-		newstate-> cycles++;
+		++(newstate-> cycles);
+		newstate-> isStall = 0;
 
 		/*------------------ IF stage ----------------- */
 		newstate-> IFID.instr = state-> instrmem[state-> pc];
 		newstate-> IFID.pcplus1 = (state-> pc) + 1;
+		newstate-> fetched += (opcode( state-> instrmem[state-> pc] ) != BLANKINSTRUCTION) ? 1 : 0;
 
 		/*------------------ ID stage ----------------- */
 		newstate-> IDEX.instr = state-> IFID.instr;
@@ -194,6 +198,8 @@ void execute( statetype* state, statetype* newstate ) {
 	int immediate = state-> IDEX.offset;
 	int regDest = state-> IDEX.instr & 7;
 	int pc = state-> IDEX.pcplus1;
+	int valA = state-> reg[regA];
+	int valB = state-> reg[regB];
 
 	newstate-> EXMEM.instr = state-> IDEX.instr;
 	newstate-> EXMEM.branchtarget = pc + immediate;
@@ -205,7 +211,13 @@ void execute( statetype* state, statetype* newstate ) {
 			exit( EXIT_FAILURE );
 		}
 
-		newstate-> EXMEM.aluresult = state-> reg[regA] + state-> reg[regB];
+		// logic for forwarding data
+		valA = (field0 (state-> WBEND.instr) == regA) ? state-> WBEND.writedata : valA;
+		valA = (field0 (state-> MEMWB.instr) == regA) ? state-> MEMWB.writedata : valA;
+		valB = (field0 (state-> WBEND.instr) == regB) ? state-> WBEND.writedata : valB;
+		valB = (field0 (state-> MEMWB.instr) == regB) ? state-> MEMWB.writedata : valB;
+
+		newstate-> EXMEM.aluresult = valA + valB;
 	}
 	else if (curOp == NAND) {
 		if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
@@ -213,7 +225,13 @@ void execute( statetype* state, statetype* newstate ) {
 			exit( EXIT_FAILURE );
 		}
 
-		newstate-> EXMEM.aluresult = ~ (state-> reg[regA] & state-> reg[regB]);
+		// logic for forwarding data
+		valA = (field0 (state-> WBEND.instr) == regA) ? state-> WBEND.writedata : valA;
+		valA = (field0 (state-> MEMWB.instr) == regA) ? state-> MEMWB.writedata : valA;
+		valB = (field0 (state-> WBEND.instr) == regB) ? state-> WBEND.writedata : valB;
+		valB = (field0 (state-> MEMWB.instr) == regB) ? state-> MEMWB.writedata : valB;
+
+		newstate-> EXMEM.aluresult = ~ (valA & valB);
 	}
 	else if (curOp == LW) {
 		int error = (regA < 1 || regA > 7)                       ? 1 : 0;
@@ -226,7 +244,29 @@ void execute( statetype* state, statetype* newstate ) {
 			exit( EXIT_FAILURE );
 		}
 
-		newstate-> EXMEM.aluresult = state-> reg[regB] + immediate;
+		// logic for forwarding data
+		valB = (field0 (state-> WBEND.instr) == regB) ? state-> WBEND.writedata : valB;
+		valB = (field0 (state-> MEMWB.instr) == regB) ? state-> MEMWB.writedata : valB;
+
+		newstate-> EXMEM.aluresult = valB + immediate;
+
+		// LW stall logic
+		int nextInstr = opcode( state-> IFID.instr );
+
+		if (nextInstr == SW || nextInstr == BEQ || nextInstr == ADD || nextInstr == NAND) {
+			if (regA == field0( state-> IFID.instr ) || regA == field1( state-> IFID.instr )) {    // ??? ok to grab value from 2 buffers previous ???
+				newstate-> IFID = state-> IFID;
+				noopIDEX( newstate );
+				newstate-> isStall = 1;
+			}
+		}
+		else if (nextInstr == LW) {
+			if (regA == field1( state-> IFID.instr )) {
+				newstate-> IFID = state-> IFID;
+				noopIDEX( newstate );
+				newstate-> isStall = 1;
+			}
+		}
 	}
 	else if (curOp == SW) {
 		int error = (regA < 1 || regA > 7)                       ? 1 : 0;
@@ -239,7 +279,13 @@ void execute( statetype* state, statetype* newstate ) {
 			exit( EXIT_FAILURE );
 		}
 
-		newstate-> EXMEM.aluresult = state-> reg[regB] + immediate;
+		// logic for forwarding data
+		valA = (field0 (state-> WBEND.instr) == regA) ? state-> WBEND.writedata : valA;
+		valA = (field0 (state-> MEMWB.instr) == regA) ? state-> MEMWB.writedata : valA;
+		valB = (field0 (state-> WBEND.instr) == regB) ? state-> WBEND.writedata : valB;
+		valB = (field0 (state-> MEMWB.instr) == regB) ? state-> MEMWB.writedata : valB;
+
+		newstate-> EXMEM.aluresult = valB + immediate;
 	}
 	else if (curOp == BEQ) {
 		int error = (regA < 0 || regA > 7) ? 1 : 0;
@@ -250,7 +296,14 @@ void execute( statetype* state, statetype* newstate ) {
 			exit( EXIT_FAILURE );
 		}
 
-		newstate-> EXMEM.aluresult = (state-> reg[regA] - state-> reg[regB]);
+		// logic for forwarding data
+		valA = (field0 (state-> WBEND.instr) == regA) ? state-> WBEND.writedata : valA;
+		valA = (field0 (state-> MEMWB.instr) == regA) ? state-> MEMWB.writedata : valA;
+		valB = (field0 (state-> WBEND.instr) == regB) ? state-> WBEND.writedata : valB;
+		valB = (field0 (state-> MEMWB.instr) == regB) ? state-> MEMWB.writedata : valB;
+
+		++(newstate-> branches);
+		newstate-> EXMEM.aluresult = (valA - valB);
 	}
 	else if (curOp == JALR) {
 		if (regA < 1 || regA > 7 || regB < 0 || regB > 7) {
@@ -290,13 +343,21 @@ void memory( statetype* state, statetype* newstate ) {
 	// set new pc to correct value
 	if (BEQ == opcode( state-> EXMEM.instr ) && state-> EXMEM.aluresult == 0) {
 		newstate-> pc = state-> EXMEM.branchtarget;
-	} else {
+		noopIFID( newstate );
+		noopIDEX( newstate );
+		noopEXMEM( newstate );
+	  ++(newstate-> mispreds);
+	}
+	else if (newstate-> isStall) {
+		// pc remains the same
+	}
+	else {
 		newstate-> pc = (state-> pc) + 1;
 	}
 }
 
 void writeback( statetype* state, statetype* newstate ) {
-	newstate-> WBEND.instr = state-> MEMWB.instr; // ??? is WBEND for some sort of hazard solution ???
+	newstate-> WBEND.instr = state-> MEMWB.instr;
 	newstate-> WBEND.writedata = state-> MEMWB.writedata;
 
 	if (ADD == opcode( state-> MEMWB.instr ) || NAND == opcode( state-> MEMWB.instr )) {
@@ -304,6 +365,10 @@ void writeback( statetype* state, statetype* newstate ) {
 	}
 	if (LW == opcode( state-> MEMWB.instr )) {
 		newstate-> reg[field0( state-> MEMWB.instr )] = state-> MEMWB.writedata;
+	}
+
+	if (state-> cycles >= 3) { // ??? are instrs only retired once in WBEND ???
+		++(newstate-> retired);
 	}
 }
 
