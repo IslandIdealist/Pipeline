@@ -11,9 +11,11 @@
 
 ### Questions for Dr. Myre
 
-- [ ] Count injected noops as retired?
-- [ ] Other data hazards?
-- [ ] Questions from code
+- [ ] Do we need to take out error checking (halt & add000)?
+- [ ] If branch taken, are bubbled instrs counted as fetched?
+- [ ] How to avoid counting .fill as fetched?
+- [ ] Your writedata does reset to 0
+- [ ] Where is my memory leak?
 
 ### Notes
 

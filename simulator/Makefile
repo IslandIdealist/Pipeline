@@ -13,7 +13,7 @@ simulator.o: $(PRNAME).c
 debug: CFLAGS += -g
 debug: all
 	@echo DEBUG WITH: gdb $(PRNAME)
-	@echo MEMCHECK: valgrind --leak-check=full $(PRNAME) *args*
+	@echo MEMCHECK: valgrind --leak-check=full ./$(PRNAME) *args*
 
 clean:
 	rm $(PRNAME) *.o *.*~ *~ .tags .cscope*
