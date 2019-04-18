@@ -1,6 +1,3 @@
-// add more forwarding rules
-	// add check from exmem
-	// make changes based off of right-side intr (lw, nand, and)
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -17,9 +14,7 @@
 #define JALR 5
 #define HALT 6
 #define NOOP 7
-
 #define NOOPINSTRUCTION 0x1c00000
-#define BLANKINSTRUCTION 0x0000000
 
 typedef struct forwardStruct{
 	int valueA;
@@ -86,6 +81,9 @@ int field1(int instruction);
 int field2(int instruction);
 int opcode(int instruction);
 void datafoward( fwdType* data, statetype* state );
+void stallifneeded( fwdType* data, statetype* state, statetype* newstate );
+void stallifneededLW( fwdType* data, statetype* state, statetype* newstate );
+void stall( fwdType* data, statetype* state, statetype* newstate );
 void execute( statetype* state, statetype* newstate );
 void memory( statetype* state, statetype* newstate );
 void writeback( statetype* state, statetype* newstate );
@@ -124,7 +122,7 @@ int main( int argc, char** argv ) {
 	while (fgets( curStr, 11, openFile ) != NULL) {
 		state -> instrmem[state-> numMemory] = atoi( curStr );
 		state -> datamem[state-> numMemory] = atoi( curStr );
-		++(state -> numMemory);
+		state -> numMemory += 1;
 	}
 
 	free( curStr );
@@ -134,7 +132,6 @@ int main( int argc, char** argv ) {
 // PERFORM INSTRUCTIONS AND PRINT STATE
 	runInstrs( state );
 
-	printstate( state );
 	free( state );
 	exit( EXIT_SUCCESS );
 }
@@ -154,23 +151,25 @@ void runInstrs( statetype* state ) {
 
 		/* check for halt */
 		if(HALT == opcode(state-> MEMWB.instr)) {
+			state-> fetched -= 3;
 			printf("machine halted\n");
 			printf("total of %d cycles executed\n", state-> cycles);
 			printf("total of %d instructions fetched\n", state-> fetched);
 			printf("total of %d instructions retired\n", state-> retired);
 			printf("total of %d branches executed\n", state-> branches);
 			printf("total of %d branch mispredictions\n", state-> mispreds);
-			exit( EXIT_FAILURE );
+			free( newstate );
+			return;
 		}
 
 		*newstate = *state;
-		++(newstate-> cycles);
+		newstate-> cycles += 1;
 		newstate-> pc = (state-> pc) + 1;
 
 		/*------------------ IF stage ----------------- */
 		newstate-> IFID.instr = state-> instrmem[state-> pc];
 		newstate-> IFID.pcplus1 = (state-> pc) + 1;
-		newstate-> fetched += ( state-> instrmem[state-> pc]  != BLANKINSTRUCTION) ? 1 : 0;
+		newstate-> fetched += 1;
 
 		/*------------------ ID stage ----------------- */
 		newstate-> IDEX.instr = state-> IFID.instr;
@@ -194,8 +193,6 @@ void runInstrs( statetype* state ) {
 			 state with the values calculated in this cycle
 			 – AKA “Clock Tick”. */
 	}
-
-	free( newstate );
 }
 
 
@@ -204,156 +201,46 @@ void execute( statetype* state, statetype* newstate ) {
 	int regA = field0( state-> IDEX.instr );
 	int regB = field1( state-> IDEX.instr );
 	int immediate = state-> IDEX.offset;
-	int regDest = state-> IDEX.instr & 7;
-	int pc = state-> IDEX.pcplus1;
-	int valA = state-> IDEX.readregA;
-	int valB = state-> IDEX.readregB;
-	fwdType* data = malloc( 2 * sizeof(int) );
+	fwdType* data = malloc( sizeof(fwdType) ); // <frd>
 
-	data-> valueA = valA;
-	data-> valueB = valB;
+	data-> valueA = state-> IDEX.readregA;
+	data-> valueB = state-> IDEX.readregB;
 
 	newstate-> EXMEM.instr = state-> IDEX.instr;
-	newstate-> EXMEM.branchtarget = pc + immediate;
+	newstate-> EXMEM.branchtarget = state-> IDEX.pcplus1 + immediate;
 	newstate-> EXMEM.readreg = state-> IDEX.readregA;
 
 	if (curOp == ADD) {
-//		if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
-//			printf( "ERROR: add was given an improper register\n" );
-//			exit( EXIT_FAILURE );
-//		}
 		datafoward( data, state );
-
 		newstate-> EXMEM.aluresult = data-> valueA + data-> valueB;
-
-		int prevIntr = state-> EXMEM.instr;
-
-		if (opcode( prevIntr ) == LW) {
-			if (regA == field0( prevIntr ) || regB == field0( prevIntr )) {
-				newstate-> IFID = state-> IFID;
-				newstate-> IDEX = state-> IDEX;
-				newstate-> pc = state-> pc;
-				newstate-> fetched -= 1;
-				noopEXMEM( newstate );
-			}
-		}
+		stallifneeded( data, state, newstate );
 	}
 	else if (curOp == NAND) {
-		//		if (regDest < 1 || regDest > 7 || regA < 0 || regA > 7 || regB < 0 || regB > 7) {
-		//			printf( "ERROR: nand was given an improper register\n" );
-		//			exit( EXIT_FAILURE );
-		//		}
-
 		datafoward( data, state );
-
 		newstate-> EXMEM.aluresult = ~ (data-> valueA & data-> valueB);
-
-		int prevIntr = state-> EXMEM.instr;
-
-		if (opcode( prevIntr ) == LW) {
-			if (regA == field0( prevIntr ) || regB == field0( prevIntr )) {
-				newstate-> IFID = state-> IFID;
-				newstate-> IDEX = state-> IDEX;
-				newstate-> pc = state-> pc;
-				newstate-> fetched -= 1;
-				noopEXMEM( newstate );
-			}
-		}
+		stallifneeded( data, state, newstate );
 	}
 	else if (curOp == LW) {
-		//		int error = (regA < 1 || regA > 7)                       ? 1 : 0;
-		//				error = (regB < 0 || regB > 7)                       ? 1 : error;
-		//				error = (state-> reg[regB] + immediate < 0)          ? 1 : error;
-		//				error = (state-> reg[regB] + immediate >= NUMMEMORY) ? 1 : error;
-
-		//		if (error) {
-		//			printf( "ERROR: lw was given an improper reg or offset\n" );
-		//			exit( EXIT_FAILURE );
-		//		}
-
 		datafoward( data, state );
-
 		newstate-> EXMEM.aluresult = data-> valueB + immediate;
-
-		// LW stall logic
-		int prevIntr = state-> EXMEM.instr;
-
-		if (opcode( prevIntr ) == LW && regA == field0( prevIntr )) {
-			newstate-> IFID = state-> IFID;
-			newstate-> IDEX = state-> IDEX;
-			newstate-> pc = state-> pc;
-			newstate-> fetched -= 1;
-			noopEXMEM( newstate );
-		}
+		stallifneededLW( data, state, newstate );
 	}
 	else if (curOp == SW) {
-		//		int error = (regA < 1 || regA > 7)                       ? 1 : 0;
-		//				error = (regB < 0 || regB > 7)                       ? 1 : error;
-		//				error = (state-> reg[regB] + immediate < 0)          ? 1 : error;
-		//				error = (state-> reg[regB] + immediate >= NUMMEMORY) ? 1 : error;
-
-		//		if (error) {
-		//			printf( "ERROR: sw was given an improper reg or offset\n" );
-		//			exit( EXIT_FAILURE );
-		//		}
-
 		datafoward( data, state );
-
 		newstate-> EXMEM.aluresult = data-> valueB + immediate;
-
-		int prevIntr = state-> EXMEM.instr;
-
-		if (opcode( prevIntr ) == LW) {
-			if (regA == field0( prevIntr ) || regB == field0( prevIntr )) {
-				newstate-> IFID = state-> IFID;
-				newstate-> IDEX = state-> IDEX;
-				newstate-> pc = state-> pc;
-				newstate-> fetched -= 1;
-				noopEXMEM( newstate );
-			}
-		}
+		stallifneeded( data, state, newstate );
 	}
 	else if (curOp == BEQ) {
-		//		int error = (regA < 0 || regA > 7) ? 1 : 0;
-		//				error = (regB < 0 || regB > 7) ? 1 : error;
-
-		//		if (error || (state-> reg[regA] == state-> reg[regB] && (state-> pc + immediate < 0 || state-> pc + immediate >= NUMMEMORY))) {
-		//			printf( "ERROR: beq was given an improper reg or offset\n" );
-		//			exit( EXIT_FAILURE );
-		//		}
-
 		datafoward( data, state );
-
 		newstate-> EXMEM.aluresult = (data-> valueA - data-> valueB);
+		stallifneeded( data, state, newstate );
 
-		int prevIntr = state-> EXMEM.instr;
-
-		if (opcode( prevIntr ) == LW) {
-			if (regA == field0( prevIntr ) || regB == field0( prevIntr )) {
-				newstate-> IFID = state-> IFID;
-				newstate-> IDEX = state-> IDEX;
-				newstate-> pc = state-> pc;
-				newstate-> fetched -= 1;
-				noopEXMEM( newstate );
-			}
-		}
-		else {
-			++(newstate-> branches);
+		// this is true when no stall has happened
+		if (newstate-> fetched != state-> fetched) {
+			newstate-> branches += 1;
 		}
 	}
-//	else if (curOp == JALR) {
-//		if (regA < 1 || regA > 7 || regB < 0 || regB > 7) {
-//			printf( "ERROR: jalr was given an improper register\n" );
-//			exit( EXIT_FAILURE );
-//		}
-//	}
-//	else if (curOp == NOOP) {
-//		// nothing
-//	}
-//	else if (curOp > 7) {
-//		printf( "ERROR: improper opcode was given\n" );
-//		exit( EXIT_FAILURE );
-//	}
+
 	free( data );
 }
 
@@ -366,7 +253,7 @@ void memory( statetype* state, statetype* newstate ) {
 	} else if (LW == opcode( state-> EXMEM.instr )) {
 		newstate-> MEMWB.writedata = state-> datamem[state-> EXMEM.aluresult];
 	} else {
-		newstate-> MEMWB.writedata = 0; // ??? resets when pc = 5 ???
+		newstate-> MEMWB.writedata = 0;
 	}
 
 	// write to datamem
@@ -381,7 +268,7 @@ void memory( statetype* state, statetype* newstate ) {
 		noopIDEX( newstate );
 		noopEXMEM( newstate );
 		newstate-> retired -= 2;
-	  ++(newstate-> mispreds);
+	  newstate-> mispreds += 1;
 	}
 }
 
@@ -397,7 +284,7 @@ void writeback( statetype* state, statetype* newstate ) {
 	}
 
 	if (state-> cycles > 1) {
-		++(newstate-> retired);
+		newstate-> retired += 1;
 	}
 }
 
@@ -407,34 +294,81 @@ void datafoward( fwdType* data, statetype* state ) {
 	int valA = data-> valueA;
 	int valB = data-> valueB;
 
-	int isLW = ( (opcode( state-> WBEND.instr ) == LW ) );
-	int isADD = ( (opcode( state-> WBEND.instr ) == ADD ) );
-	int isNAND = ( (opcode( state-> WBEND.instr ) == NAND ) );
-
-	if (isLW || isADD || isNAND) {
+	if (opcode( state-> WBEND.instr ) == LW) {
 		valA = (field0( state-> WBEND.instr ) == regA) ? state-> WBEND.writedata : valA;
 		valB = (field0( state-> WBEND.instr ) == regB) ? state-> WBEND.writedata : valB;
 	}
+	int isADD = ( (opcode( state-> WBEND.instr ) == ADD ) );
+	int isNAND = ( (opcode( state-> WBEND.instr ) == NAND ) );
+	if (isADD || isNAND) {
+		valA = ((field2( state-> WBEND.instr ) & 7) == regA) ? state-> WBEND.writedata : valA;
+		valB = ((field2( state-> WBEND.instr ) & 7) == regB) ? state-> WBEND.writedata : valB;
+	}
 
-	isLW = ( (opcode( state-> MEMWB.instr ) == LW ) );
-	isADD = ( (opcode( state-> MEMWB.instr ) == ADD ) );
-	isNAND = ( (opcode( state-> MEMWB.instr ) == NAND ) );
-
-	if (isLW || isADD || isNAND) {
+	if (opcode( state-> MEMWB.instr ) == LW) {
 		valA = (field0( state-> MEMWB.instr ) == regA) ? state-> MEMWB.writedata : valA;
 		valB = (field0( state-> MEMWB.instr ) == regB) ? state-> MEMWB.writedata : valB;
+	}
+	isADD = ( (opcode( state-> MEMWB.instr ) == ADD ) );
+	isNAND = ( (opcode( state-> MEMWB.instr ) == NAND ) );
+	if (isADD || isNAND) {
+		valA = ((field2( state-> MEMWB.instr ) & 7) == regA) ? state-> MEMWB.writedata : valA;
+		valB = ((field2( state-> MEMWB.instr ) & 7) == regB) ? state-> MEMWB.writedata : valB;
 	}
 
 	isADD = ( (opcode( state-> EXMEM.instr ) == ADD ) );
 	isNAND = ( (opcode( state-> EXMEM.instr ) == NAND ) );
-
-	if ( isADD || isNAND) {
-		valA = (field0( state-> EXMEM.instr ) == regA) ? state-> EXMEM.aluresult : valA;
-		valB = (field0( state-> EXMEM.instr ) == regB) ? state-> EXMEM.aluresult : valB;
+	if (isADD || isNAND) {
+		valA = ((field2( state-> EXMEM.instr ) & 7) == regA) ? state-> EXMEM.aluresult : valA;
+		valB = ((field2( state-> EXMEM.instr ) & 7) == regB) ? state-> EXMEM.aluresult : valB;
 	}
 
-	data-> valueA = valA;
+	// if the current instructin is a lw, don't change regA
+	data-> valueA = (opcode( state-> IDEX.instr ) == LW) ? data-> valueA : valA;
 	data-> valueB = valB;
+}
+
+void stallifneeded( fwdType* data, statetype* state, statetype* newstate ) {
+	int prevIntr = state-> EXMEM.instr;
+	int regA = field0( state-> IDEX.instr );
+	int regB = field1( state-> IDEX.instr );
+
+	if (opcode( prevIntr ) == LW) {
+		if (regA == field0( prevIntr ) || regB == field0( prevIntr )) {
+			stall( data, state, newstate );
+		}
+	}
+	if (opcode( prevIntr ) == ADD || opcode( prevIntr ) == NAND) {
+		if (regA == (field2( prevIntr ) & 7) || regB == (field2( prevIntr ) & 7)) {
+			stall( data, state, newstate );
+		}
+	}
+}
+
+void stallifneededLW( fwdType* data, statetype* state, statetype* newstate ) {
+	int prevIntr = state-> EXMEM.instr;
+	int regB = field1( state-> IDEX.instr );
+
+	if (opcode( prevIntr ) == LW) {
+		if (regB == field0( prevIntr )) {
+			stall( data, state, newstate );
+		}
+	}
+	if (opcode( prevIntr ) == ADD || opcode( prevIntr ) == NAND) {
+		if (regB == (field2( prevIntr ) & 7)) {
+			stall( data, state, newstate );
+		}
+	}
+}
+
+void stall( fwdType* data, statetype* state, statetype* newstate ) {
+	newstate-> IFID = state-> IFID;
+	newstate-> IDEX = state-> IDEX;
+	newstate-> IDEX.readregA = data-> valueA;
+	newstate-> IDEX.readregB = data-> valueB;
+	newstate-> pc = state-> pc;
+	newstate-> fetched -= 1;
+	noopEXMEM( newstate );
 }
 
 void noopIFID(statetype *stateptr){
