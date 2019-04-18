@@ -1,30 +1,28 @@
 ## TODO
 
 - [ ] write tests
-- [ ] add statistics logic
-- [ ] inject noops (bubbling)
-- [ ] control hazards (beq)
-- [ ] structural hazards (stalls: lw then add)
-- [ ] branch prediction
+- [x] add statistics logic
+- [x] inject noops (bubbling)
+- [x] control hazards (beq)
+- [x] structural hazards (stalls: lw then add)
 - [ ] make README
 - [ ] write overview
 
 ### Questions for Dr. Myre
 
-- [ ] Do we need to take out error checking (halt & add000)?
-- [ ] If branch taken, are bubbled instrs counted as fetched?
-- [ ] How to avoid counting .fill as fetched?
-- [ ] Your writedata does reset to 0
-- [ ] Where is my memory leak?
+- [ ] none
 
-### Notes
+### Tests
 
-+ Branch prediction
-	+ Happens when beq is in decode
-	+ Calls 2-bit function
-	+ If beq is likely, ?stall, and change PC
-	+ (prediction) ? good work : bubble and correct;
-
-+ Tests
-	+ Branch into next line
-	+ Branch to a branch
++ Stalls
+	+ executing {ADD,NAND,LW,SW,BEQ}
+	+ from LW
++ Data forwarding
+	+ executing {ADD,NAND,LW,SW,BEQ}
+	+ from {ADD,NAND,LW}
+	+	in {EXMEM,MEMWB,WBEND}
++ Others
+	+ given
+	+ halt
+	+ given from Project 1
+	+ what happens if we have LW 1 0 8 right after SW 2 0 8
