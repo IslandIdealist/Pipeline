@@ -1,16 +1,16 @@
 ## TODO
 
-- [ ] write tests
+- [x] write tests
 - [x] add statistics logic
 - [x] inject noops (bubbling)
 - [x] control hazards (beq)
 - [x] structural hazards (stalls: lw then add)
-- [ ] make README
-- [ ] write overview
+- [x] make README
+- [x] write overview
 
 ### Questions for Dr. Myre
 
-- [ ] none
+- [x] none
 
 ### Tests
 
