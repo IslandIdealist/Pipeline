@@ -263,12 +263,15 @@ void memory( statetype* state, statetype* newstate ) {
 
 	// sets new pc value if branching
 	if (BEQ == opcode( state-> EXMEM.instr ) && state-> EXMEM.aluresult == 0) {
-		newstate-> pc = state-> EXMEM.branchtarget;
-		noopIFID( newstate );
-		noopIDEX( newstate );
-		noopEXMEM( newstate );
-		newstate-> retired -= 2;
-	  newstate-> mispreds += 1;
+		// ignores branch if set to next line
+		if (field2( state-> EXMEM.instr ) & 7 != 0) {
+			newstate-> pc = state-> EXMEM.branchtarget;
+			noopIFID( newstate );
+			noopIDEX( newstate );
+			noopEXMEM( newstate );
+			newstate-> retired -= 2;
+			newstate-> mispreds += 1;
+		}
 	}
 }
 
