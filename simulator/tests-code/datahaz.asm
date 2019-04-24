@@ -5,4 +5,4 @@ loop add 2 2 1
   beq 0 0 loop
 end halt
 inc .fill 1
-inc .fill 50
+lim .fill 50
