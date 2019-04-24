@@ -264,13 +264,15 @@ void memory( statetype* state, statetype* newstate ) {
 	// sets new pc value if branching
 	if (BEQ == opcode( state-> EXMEM.instr ) && state-> EXMEM.aluresult == 0) {
 		// ignores branch if set to next line
-		if (field2( state-> EXMEM.instr ) & 7 != 0) {
+		if (field2( state-> EXMEM.instr ) != 0) {
 			newstate-> pc = state-> EXMEM.branchtarget;
 			noopIFID( newstate );
 			noopIDEX( newstate );
 			noopEXMEM( newstate );
 			newstate-> retired -= 2;
 			newstate-> mispreds += 1;
+			// ??? not sure if we should count this as executed of not ???
+			newstate-> branches -= (BEQ == opcode( state-> IDEX.instr )) ? 1 : 0;
 		}
 	}
 }

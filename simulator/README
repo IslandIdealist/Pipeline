@@ -1,0 +1,83 @@
+###############################
+##### PIPELINED SIMULATOR #####
+###############################
+
+This project simulates a single-cycle processor with pipelining.
+It takes as input a UST-3400 machine code file.
+
+HOW TO RUN:
+./simulator -i <test file>
+
+#############################
+##### PROJECT HIERARCHY #####
+#############################
+.
+├── Makefile       - used to build project
+├── overview.pdf   - summary of project
+├── README         - you are here
+├── simulator.c    - code to simulate a processor using pipelining
+├── tests-bin      - directory for test cases (machine code)
+│   ├── beq
+│   ├── datahaz
+│   ├── forwarding
+│   ├── given
+│   ├── halt
+│   ├── nand
+│   ├── proj1
+│   ├── st-fw
+│   ├── sw
+│   └── test
+└── tests-code      - directory for original assembly code
+    ├── beq.asm
+    ├── datahaz.asm
+    ├── forwarding.asm
+    ├── given.asm
+    ├── halt.asm
+    ├── nand.asm
+    ├── proj1.asm
+    ├── st-fw.asm
+    └── sw.asm
+
+#################
+##### TESTS #####
+#################
+
+beq
+└─ tests stalling, branching forward, and data forwarding (from LW)
+
+datahaz
+└─ tests stalling, branching, and data forwarding (from ADD)
+
+forwarding
+└─ tests data forwarding (from WBEND, MEMWB, and EXMEM)
+
+given
+└─ tests calculation of statistics
+
+halt
+└─ tests most basic case
+
+nand
+└─ tests stalling, data forwarding (from LW and NAND)
+
+proj1
+└─ tests stalling, branching, and data forwarding (from BEQ)
+
+st-fw
+└─ tests stalling and data forwarding (from LW to LW)
+
+sw
+└─ tests stalling, branching, and data forwarding (from SW)
+
+
+              _                            _
+    /\      | |                     /\   | |
+   /  \   __| | __ _ _ __ ___      /  \  | |__  _ __ __ _ _ __ ___  ___
+  / /\ \ / _` |/ _` | '_ ` _ \    / /\ \ | '_ \| '__/ _` | '_ ` _ \/ __|
+ / ____ \ (_| | (_| | | | | | |  / ____ \| |_) | | | (_| | | | | | \__ \
+/_/    \_\__,_|\__,_|_|_|_|_|_| /_/   _\_\_.__/|_|  \__,_|_| |_| |_|___/
+  ___    |  \/  |     | | | |        | |                           | |
+ ( _ )   | \  / | __ _| |_| |_       | | ___ _ __ _ __ __ _ _ __ __| |
+ / _ \/\ | |\/| |/ _` | __| __|  _   | |/ _ \ '__| '__/ _` | '__/ _` |
+| (_>  < | |  | | (_| | |_| |_  | |__| |  __/ |  | | | (_| | | | (_| |
+ \___/\/ |_|  |_|\__,_|\__|\__|  \____/ \___|_|  |_|  \__,_|_|  \__,_|
