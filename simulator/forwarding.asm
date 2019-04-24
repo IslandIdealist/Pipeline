@@ -2,7 +2,8 @@
     lw 2 0 two
     lw 3 0 tres
     lw 4 0 four
-    add 5 3 4
+    beq 0 0 loop
+loop add 5 3 4
     add 5 5 3
     lw 6 0 ten
     beq 6 5 end
